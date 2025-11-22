@@ -1,0 +1,45 @@
+# Git Commit Message Generation Rules
+
+当被要求生成 Git 提交信息（Commit Message）时，请必须严格遵循 **Conventional Commits** 规范。
+
+## 1. 格式标准
+```text
+<type>(<scope>): <subject>
+
+[可选] <body>
+```
+
+## 2. Type (类型) 列表
+请根据代码变更的性质，从以下列表中选择一个最合适的类型：
+- **feat**: 新增功能 (A new feature)
+- **fix**: 修复 Bug (A bug fix)
+- **docs**: 文档变更 (Documentation only changes)
+- **style**: 代码格式调整 (Changes that do not affect the meaning of the code, e.g., white-space, formatting)
+- **refactor**: 代码重构 (A code change that neither fixes a bug nor adds a feature)
+- **perf**: 性能优化 (A code change that improves performance)
+- **test**: 测试相关 (Adding missing tests or correcting existing tests)
+- **chore**: 构建/工具链/依赖更新 (Changes to the build process or auxiliary tools and libraries such as documentation generation)
+- **revert**: 回滚提交
+
+## 3. Scope (范围)
+- 根据修改的文件路径或所属模块自动推断 Scope。
+- iOS 常见 Scope 示例：`Home`, `Login`, `Network`, `Podfile`, `AppDelegate`, `UI`。
+- 如果修改过于分散，可以省略 Scope。
+
+## 4. Subject (简述)
+- **必须使用中文**。
+- 简练精确，不超过 50 个字符。
+- 使用祈使句风格（例如“添加...”，“修复...”）。
+- 结尾**不要**包含句号。
+
+## 5. Body (详情) - 仅在变更复杂时需要
+- 如果变更内容较多，请换行详细描述“为什么修改”以及“修改了什么”。
+- 使用中文。
+
+## 示例 (Examples)
+- feat(User): 添加用户注册页面的输入校验
+- fix(Network): 修复弱网环境下请求超时的崩溃问题
+- style(Home): 调整首页 Banner 的圆角和间距
+- refactor(Auth): 重构登录逻辑，抽离 AuthManager
+- chore(Podfile): 更新 SDWebImage 至 5.12.0
+
