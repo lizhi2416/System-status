@@ -342,32 +342,53 @@ class AppleStatusMonitor:
                             # 方法4: 检查样式属性中的颜色
                             colored_elements = container.find_all(style=lambda x: x and ('green' in x.lower() or 'rgb' in x.lower()))
                             
-                            # 记录找到的状态元素
+                            # 记录找到的状态元素（用于后续判断）
                             if status_elements:
                                 logger.debug(f"  找到状态元素: {len(status_elements)} 个")
                                 for se in status_elements[:3]:
-                                    logger.debug(f"    - <{se.name} class=\"{se.get('class', [])}\"> {se.get_text()[:50]}")
+                                    se_classes = se.get('class', [])
+                                    se_id = se.get('id', '')
+                                    se_text = se.get_text()[:50]
+                                    logger.debug(f"    - <{se.name} class=\"{se_classes}\" id=\"{se_id}\"> 文本: \"{se_text}\"")
                             
                             if status_texts:
                                 logger.debug(f"  找到状态文本: {len(status_texts)} 个")
                                 for st in status_texts[:3]:
-                                    logger.debug(f"    - \"{st.strip()[:50]}\"")
+                                    logger.debug(f"    - 文本内容: \"{st.strip()[:50]}\"")
                             
                             if colored_elements:
                                 logger.debug(f"  找到颜色元素: {len(colored_elements)} 个")
+                                for ce in colored_elements[:2]:
+                                    ce_style = ce.get('style', '')
+                                    logger.debug(f"    - <{ce.name} style=\"{ce_style[:100]}\">")
                             
                             # 判断状态
                             # 如果找到Available文本或绿色指示器，认为是可用
                             if status_texts or any('available' in str(elem.get('class', [])).lower() for elem in status_elements):
+                                # 记录判断依据
+                                judgment_fields = []
+                                if status_texts:
+                                    judgment_fields.append(f"状态文本: {[st.strip()[:50] for st in status_texts[:3]]}")
+                                available_elements = [elem for elem in status_elements if 'available' in str(elem.get('class', [])).lower()]
+                                if available_elements:
+                                    judgment_fields.append(f"状态元素类名: {[str(elem.get('class', [])) for elem in available_elements[:3]]}")
+                                
                                 # 检查是否有异常状态指示
-                                if any(keyword in container_text_lower for keyword in ['unavailable', 'degraded', 'down', 'error', 'outage']):
-                                    logger.warning(f"检测到异常状态关键词")
+                                anomaly_keywords = [k for k in ['unavailable', 'degraded', 'down', 'error', 'outage'] if k in container_text_lower]
+                                if anomaly_keywords:
+                                    judgment_fields.append(f"异常关键词: {anomaly_keywords}")
+                                    logger.warning(f"🔴 判断为异常状态 - 依据字段: {' | '.join(judgment_fields)}")
+                                    logger.warning(f"  容器元素: <{container_tag} class=\"{container_classes}\" id=\"{container_id}\">")
+                                    logger.warning(f"  容器文本片段: {container_text[:300]}...")
                                     return {
                                         'status': 'Unavailable',
                                         'error_type': '服务状态异常',
-                                        'error_message': f'服务状态异常，检测到异常关键词'
+                                        'error_message': f'服务状态异常，检测到异常关键词: {anomaly_keywords}'
                                     }
-                                logger.info(f"✅ 找到明确的状态指示: Available (层级 {level})")
+                                
+                                logger.info(f"✅ 判断为可用状态 - 依据字段: {' | '.join(judgment_fields)}")
+                                logger.info(f"  容器元素: <{container_tag} class=\"{container_classes}\" id=\"{container_id}\">")
+                                logger.info(f"  容器文本片段: {container_text[:200]}...")
                                 found_status = True
                                 return {
                                     'status': 'Available',
@@ -378,7 +399,13 @@ class AppleStatusMonitor:
                             # 如果找到异常状态指示
                             if any(keyword in container_text_lower for keyword in ['unavailable', 'degraded', 'down', 'error', 'outage', 'maintenance']):
                                 found_keywords = [k for k in ["unavailable", "degraded", "down", "error", "outage", "maintenance"] if k in container_text_lower]
-                                logger.warning(f"检测到异常状态关键词: {found_keywords}")
+                                judgment_fields = [
+                                    f"异常关键词: {found_keywords}",
+                                    f"容器文本内容: {container_text[:200]}..."
+                                ]
+                                logger.warning(f"🔴 判断为异常状态 - 依据字段: {' | '.join(judgment_fields)}")
+                                logger.warning(f"  容器元素: <{container_tag} class=\"{container_classes}\" id=\"{container_id}\">")
+                                logger.warning(f"  检测到的关键词位置: 在容器文本中")
                                 return {
                                     'status': 'Unavailable',
                                     'error_type': '服务状态异常',
@@ -386,12 +413,19 @@ class AppleStatusMonitor:
                                 }
                             
                             # 检查类名中的状态
-                            if any(keyword in classes for keyword in ['unavailable', 'degraded', 'down', 'error']):
-                                logger.warning(f"检测到异常状态类名: {classes}")
+                            anomaly_class_keywords = [k for k in ['unavailable', 'degraded', 'down', 'error'] if k in classes]
+                            if anomaly_class_keywords:
+                                judgment_fields = [
+                                    f"异常类名关键词: {anomaly_class_keywords}",
+                                    f"完整类名: {container_classes}"
+                                ]
+                                logger.warning(f"🔴 判断为异常状态 - 依据字段: {' | '.join(judgment_fields)}")
+                                logger.warning(f"  容器元素: <{container_tag} class=\"{container_classes}\" id=\"{container_id}\">")
+                                logger.warning(f"  检测到的关键词位置: 在CSS类名中")
                                 return {
                                     'status': 'Unavailable',
                                     'error_type': '服务状态异常',
-                                    'error_message': f'服务状态异常，检测到异常类名'
+                                    'error_message': f'服务状态异常，检测到异常类名: {anomaly_class_keywords}'
                                 }
                             
                             container = container.parent
@@ -412,7 +446,20 @@ class AppleStatusMonitor:
                             
                             # 如果包含Available，认为是可用
                             if 'available' in row_text_lower or 'available' in row_classes:
-                                logger.info(f"✅ 在服务行中找到状态: Available (行层级 {row_level})")
+                                judgment_fields = []
+                                if 'available' in row_text_lower:
+                                    # 找到包含available的文本片段
+                                    available_text_parts = []
+                                    for part in row_text.split():
+                                        if 'available' in part.lower():
+                                            available_text_parts.append(part[:50])
+                                    judgment_fields.append(f"文本内容: {available_text_parts[:3]}")
+                                if 'available' in row_classes:
+                                    judgment_fields.append(f"CSS类名: {service_row.get('class', [])}")
+                                
+                                logger.info(f"✅ 判断为可用状态 - 依据字段: {' | '.join(judgment_fields)}")
+                                logger.info(f"  服务行元素: <{service_row.name} class=\"{service_row.get('class', [])}\"> (行层级 {row_level})")
+                                logger.info(f"  服务行文本片段: {row_text[:200]}...")
                                 found_status = True
                                 return {
                                     'status': 'Available',
@@ -440,18 +487,58 @@ class AppleStatusMonitor:
                                 break
                         
                         if is_footer:
+                            judgment_fields = [
+                                f"服务文本: {service_text_content}",
+                                f"元素位置: <{parent_tag} class=\"{parent_classes}\"> (页脚/导航)",
+                                f"判断依据: 未找到明确的状态指示器，但服务文本存在于页脚/导航区域"
+                            ]
                             logger.warning(f"⚠️ 警告：找到的服务元素位于页脚/导航区域，不是实际的状态页面")
+                            logger.warning(f"  判断依据字段: {' | '.join(judgment_fields)}")
                             logger.warning(f"  原因：页面可能是JavaScript动态加载的，服务状态列表未在初始HTML中")
-                            logger.warning(f"  服务文本: {service_text_content}")
-                            logger.warning(f"  位置: <{parent_tag} class=\"{parent_classes}\"> (页脚/导航)")
                             logger.warning(f"  建议：安装Selenium以获取JavaScript渲染后的页面内容")
                             logger.warning(f"  当前处理：默认认为服务可用（通常页面只显示异常状态）")
                         else:
+                            # 收集所有检查过的字段信息
+                            checked_fields = []
+                            checked_fields.append(f"服务文本: {service_text_content}")
+                            checked_fields.append(f"父元素: <{parent_tag} class=\"{parent_classes}\">")
+                            parent_text_preview = parent.get_text().strip()[:200] if parent else "N/A"
+                            checked_fields.append(f"父元素文本片段: {parent_text_preview}...")
+                            
+                            # 重新检查父元素及其容器中是否有状态相关的元素
+                            parent_container = parent
+                            found_any_status_indicator = False
+                            status_indicator_info = []
+                            
+                            for check_level in range(5):
+                                if parent_container:
+                                    container_classes = str(parent_container.get('class', [])).lower()
+                                    container_text = parent_container.get_text().lower()
+                                    
+                                    # 检查类名
+                                    if any(kw in container_classes for kw in ['available', 'unavailable', 'status', 'light']):
+                                        found_any_status_indicator = True
+                                        status_indicator_info.append(f"层级{check_level}类名包含状态关键词: {parent_container.get('class', [])}")
+                                    
+                                    # 检查文本
+                                    if any(kw in container_text for kw in ['available', 'unavailable']):
+                                        found_any_status_indicator = True
+                                        status_indicator_info.append(f"层级{check_level}文本包含状态关键词")
+                                    
+                                    parent_container = parent_container.parent
+                                else:
+                                    break
+                            
+                            checked_fields.append(f"是否找到任何状态指示器: {found_any_status_indicator}")
+                            if status_indicator_info:
+                                checked_fields.append(f"状态指示器信息: {status_indicator_info[:2]}")
+                            
+                            judgment_fields = [
+                                f"未找到明确的状态指示器（Available/Unavailable等）",
+                                f"检查过的字段: {' | '.join(checked_fields[:3])}"
+                            ]
                             logger.warning(f"⚠️ 警告：找到服务但无法确定状态")
-                            logger.warning(f"  服务文本: {service_text_content}")
-                            logger.warning(f"  父元素: <{parent_tag} class=\"{parent_classes}\">")
-                            logger.warning(f"  父元素文本: {parent.get_text().strip()[:200]}...")
-                            logger.warning(f"  原因：未找到明确的状态指示器（Available/Unavailable等）")
+                            logger.warning(f"  判断依据字段: {' | '.join(judgment_fields)}")
                             logger.warning(f"  当前处理：默认认为可用（通常页面只显示异常状态）")
                     
                     return {
@@ -566,6 +653,17 @@ class AppleStatusMonitor:
         
         # 解析服务状态
         result = self._parse_service_status(html_content)
+        
+        # 记录检测结果总结（包含判断依据）
+        logger.info("=" * 80)
+        logger.info(f"检测结果总结 [{check_time}]")
+        logger.info(f"  服务名称: {self.target_service}")
+        logger.info(f"  检测状态: {result['status'] if result['status'] else 'Unknown'}")
+        if result['error_type']:
+            logger.info(f"  异常类型: {result['error_type']}")
+        if result['error_message']:
+            logger.info(f"  详细信息: {result['error_message']}")
+        logger.info("=" * 80)
         
         # 记录日志
         if result['status'] is None:

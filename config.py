@@ -7,7 +7,7 @@
 # 监控配置
 MONITOR_URL = "https://developer.apple.com/system-status/"
 TARGET_SERVICE = "App Store - In-App Purchases"
-CHECK_INTERVAL = 300  # 检测间隔（秒），1分钟 = 60秒
+CHECK_INTERVAL = 1800  # 检测间隔（秒），30分钟 = 1800秒
 RETRY_COUNT = 3  # 请求失败重试次数
 RETRY_DELAY = 5  # 重试间隔（秒）
 
