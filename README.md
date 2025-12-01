@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Apple Developer System Status Monitor
 
 监控 Apple Developer System Status 页面中 "App Store - In-App Purchases" 服务的状态。
@@ -141,3 +142,7 @@ sudo systemctl status apple-status-monitor
 2. 邮件配置需要正确，建议先测试邮件发送功能
 3. 定期检查日志文件，确保监控正常运行
 
+=======
+# System-status
+实现监听苹果开发者In-App Purchase 相关服务状态是否异常的项目
+>>>>>>> 244905828271b2120cc47317e90613d860233101
