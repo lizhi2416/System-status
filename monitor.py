@@ -35,25 +35,46 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+def _log_to_queue(log_queue, level, message):
+    """将日志消息发送到队列（用于GUI显示）"""
+    if log_queue:
+        try:
+            log_queue.put_nowait({
+                'level': level,
+                'message': message,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+        except:
+            pass  # 队列已满，忽略
+
 
 class AppleStatusMonitor:
     """Apple Developer System Status 监控器"""
     
-    def __init__(self):
+    def __init__(self, check_interval=None, retry_count=None, retry_delay=None, 
+                 to_email=None, log_queue=None, stop_event=None):
         self.url = config.MONITOR_URL
         self.target_service = config.TARGET_SERVICE
-        self.check_interval = config.CHECK_INTERVAL  # 10分钟 = 600秒
-        self.retry_count = config.RETRY_COUNT  # 3次重试
-        self.retry_delay = config.RETRY_DELAY  # 重试间隔（秒）
+        # 支持从外部传入参数，如果没有则使用config中的默认值
+        self.check_interval = check_interval if check_interval is not None else config.CHECK_INTERVAL
+        self.retry_count = retry_count if retry_count is not None else config.RETRY_COUNT
+        self.retry_delay = retry_delay if retry_delay is not None else config.RETRY_DELAY
         self.status_data_url = getattr(config, 'STATUS_DATA_URL', None)
         self.normalized_target = self._normalize_service_name(self.target_service)
         
-        # 邮件配置
-        self.smtp_config = config.EMAIL_CONFIG
+        # 邮件配置（支持从外部传入收件人邮箱）
+        self.smtp_config = config.EMAIL_CONFIG.copy()
+        if to_email:
+            self.smtp_config['to_email'] = to_email
         
         # 状态记录文件
         self.state_file = Path(__file__).parent / "state.json"
         self.last_status = self._load_last_status()
+        
+        # GUI支持：日志队列和停止事件
+        self.log_queue = log_queue
+        self.stop_event = stop_event
+        self._running = False
         
     def _load_last_status(self) -> Optional[str]:
         """加载上次的状态"""
@@ -193,7 +214,14 @@ class AppleStatusMonitor:
         try:
             msg = MIMEMultipart()
             msg['From'] = self.smtp_config['from_email']
-            msg['To'] = self.smtp_config['to_email']
+            # 支持多个收件人（逗号分隔）
+            to_emails = self.smtp_config['to_email']
+            if isinstance(to_emails, str):
+                # 如果是字符串，可能是多个邮箱用逗号分隔
+                to_emails = [e.strip() for e in to_emails.split(',')]
+            elif not isinstance(to_emails, list):
+                to_emails = [to_emails]
+            msg['To'] = ', '.join(to_emails)  # 邮件头使用逗号分隔
             msg['Subject'] = subject
             
             # 构建纯文本邮件正文（作为备选）
@@ -364,18 +392,25 @@ class AppleStatusMonitor:
             use_ssl = self.smtp_config.get('use_ssl', False)
             use_tls = self.smtp_config.get('use_tls', False)
             
+            # 准备收件人列表
+            to_emails = self.smtp_config['to_email']
+            if isinstance(to_emails, str):
+                to_emails = [e.strip() for e in to_emails.split(',')]
+            elif not isinstance(to_emails, list):
+                to_emails = [to_emails]
+            
             if use_ssl:
                 # 使用SSL连接（如新浪邮箱）
                 with smtplib.SMTP_SSL(self.smtp_config['smtp_server'], self.smtp_config['smtp_port']) as server:
                     server.login(self.smtp_config['from_email'], self.smtp_config['password'])
-                    server.send_message(msg)
+                    server.sendmail(self.smtp_config['from_email'], to_emails, msg.as_string())
             else:
                 # 使用普通SMTP连接，可选TLS
                 with smtplib.SMTP(self.smtp_config['smtp_server'], self.smtp_config['smtp_port']) as server:
                     if use_tls:
                         server.starttls()
                     server.login(self.smtp_config['from_email'], self.smtp_config['password'])
-                    server.send_message(msg)
+                    server.sendmail(self.smtp_config['from_email'], to_emails, msg.as_string())
             
             logger.info(f"邮件通知发送成功: {subject}")
             return True
@@ -393,27 +428,37 @@ class AppleStatusMonitor:
     def _check_and_notify(self):
         """执行一次检测并发送通知"""
         check_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        logger.info(f"开始检测 [{check_time}]")
+        log_msg = f"开始检测 [{check_time}]"
+        logger.info(log_msg)
+        _log_to_queue(self.log_queue, 'INFO', log_msg)
         
         # 仅使用官方状态数据接口
         result = self._fetch_status_from_api()
         
         # 记录检测结果总结（包含判断依据）
-        logger.info("=" * 80)
-        logger.info(f"检测结果总结 [{check_time}]")
-        logger.info(f"  服务名称: {self.target_service}")
-        logger.info(f"  检测状态: {result['status'] if result['status'] else 'Unknown'}")
-        logger.info("  数据来源: 状态数据接口")
+        summary_lines = [
+            "=" * 80,
+            f"检测结果总结 [{check_time}]",
+            f"  服务名称: {self.target_service}",
+            f"  检测状态: {result['status'] if result['status'] else 'Unknown'}",
+            "  数据来源: 状态数据接口"
+        ]
         if result['error_type']:
-            logger.info(f"  异常类型: {result['error_type']}")
+            summary_lines.append(f"  异常类型: {result['error_type']}")
         if result['error_message']:
-            logger.info(f"  详细信息: {result['error_message']}")
-        logger.info("=" * 80)
+            summary_lines.append(f"  详细信息: {result['error_message']}")
+        summary_lines.append("=" * 80)
+        
+        for line in summary_lines:
+            logger.info(line)
+            _log_to_queue(self.log_queue, 'INFO', line)
         
         # 记录日志
         if result['status'] is None:
             # 接口或配置问题
-            logger.error(f"检测失败: {result['error_message']}")
+            error_msg = f"检测失败: {result['error_message']}"
+            logger.error(error_msg)
+            _log_to_queue(self.log_queue, 'ERROR', error_msg)
             self._send_email(
                 subject=f"⚠️ {result['error_type']} - {self.target_service}",
                 body=result['error_message'],
@@ -423,7 +468,9 @@ class AppleStatusMonitor:
             
         elif result['status'] == 'Unavailable':
             # 服务不可用
-            logger.warning(f"服务状态异常: {result['error_message']}")
+            warn_msg = f"服务状态异常: {result['error_message']}"
+            logger.warning(warn_msg)
+            _log_to_queue(self.log_queue, 'WARNING', warn_msg)
             # 只在状态变化时发送通知
             if self.last_status != 'Unavailable':
                 self._send_email(
@@ -436,7 +483,9 @@ class AppleStatusMonitor:
             
         else:
             # 服务正常
-            logger.info(f"服务状态正常: {result['status']}")
+            info_msg = f"服务状态正常: {result['status']}"
+            logger.info(info_msg)
+            _log_to_queue(self.log_queue, 'INFO', info_msg)
             # 如果从异常恢复到正常，也发送通知
             if self.last_status == 'Unavailable':
                 self._send_email(
@@ -449,24 +498,56 @@ class AppleStatusMonitor:
     
     def run(self):
         """运行监控循环"""
-        logger.info("=" * 60)
-        logger.info("Apple Developer System Status Monitor 启动")
-        logger.info(f"监控服务: {self.target_service}")
-        logger.info(f"检测间隔: {self.check_interval}秒 ({self.check_interval // 60}分钟)")
-        logger.info(f"重试次数: {self.retry_count}")
-        logger.info("=" * 60)
+        self._running = True
+        startup_lines = [
+            "=" * 60,
+            "Apple Developer System Status Monitor 启动",
+            f"监控服务: {self.target_service}",
+            f"检测间隔: {self.check_interval}秒 ({self.check_interval // 60}分钟)",
+            f"重试次数: {self.retry_count}",
+            "=" * 60
+        ]
+        for line in startup_lines:
+            logger.info(line)
+            _log_to_queue(self.log_queue, 'INFO', line)
         
         try:
-            while True:
+            while self._running and (self.stop_event is None or not self.stop_event.is_set()):
                 self._check_and_notify()
-                logger.info(f"等待 {self.check_interval}秒后进行下次检测...")
-                time.sleep(self.check_interval)
+                wait_msg = f"等待 {self.check_interval}秒后进行下次检测..."
+                logger.info(wait_msg)
+                _log_to_queue(self.log_queue, 'INFO', wait_msg)
+                
+                # 使用可中断的sleep
+                if self.stop_event:
+                    for _ in range(self.check_interval):
+                        if self.stop_event.is_set():
+                            break
+                        time.sleep(1)
+                else:
+                    time.sleep(self.check_interval)
+            
+            stop_msg = "监控已停止"
+            logger.info(stop_msg)
+            _log_to_queue(self.log_queue, 'INFO', stop_msg)
                 
         except KeyboardInterrupt:
-            logger.info("监控已停止（用户中断）")
+            stop_msg = "监控已停止（用户中断）"
+            logger.info(stop_msg)
+            _log_to_queue(self.log_queue, 'INFO', stop_msg)
         except Exception as e:
-            logger.error(f"监控过程发生未预期错误: {e}", exc_info=True)
+            error_msg = f"监控过程发生未预期错误: {e}"
+            logger.error(error_msg, exc_info=True)
+            _log_to_queue(self.log_queue, 'ERROR', error_msg)
             raise
+        finally:
+            self._running = False
+    
+    def stop(self):
+        """停止监控"""
+        self._running = False
+        if self.stop_event:
+            self.stop_event.set()
 
 
 if __name__ == "__main__":
