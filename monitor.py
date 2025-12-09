@@ -196,8 +196,8 @@ class AppleStatusMonitor:
             msg['To'] = self.smtp_config['to_email']
             msg['Subject'] = subject
             
-            # 构建邮件正文
-            email_body = f"""
+            # 构建纯文本邮件正文（作为备选）
+            email_body_plain = f"""
 监控时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 监控服务: {self.target_service}
 监控URL: {self.url}
@@ -205,12 +205,160 @@ class AppleStatusMonitor:
 """
             
             if error_type:
-                email_body += f"异常类型: {error_type}\n\n"
+                email_body_plain += f"异常类型: {error_type}\n\n"
             
-            email_body += f"详细信息:\n{body}\n\n"
-            email_body += f"---\n此邮件由 Apple Developer Status Monitor 自动发送"
+            email_body_plain += f"详细信息:\n{body}\n\n"
+            email_body_plain += f"查看具体状态: https://developer.apple.com/system-status/\n\n"
+            email_body_plain += f"---\n此邮件由 Apple Developer Status Monitor 自动发送"
             
-            msg.attach(MIMEText(email_body, 'plain', 'utf-8'))
+            # 构建HTML邮件正文
+            status_url = "https://developer.apple.com/system-status/"
+            check_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            email_body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }}
+        .container {{
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            border-bottom: 2px solid #007AFF;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }}
+        .header h2 {{
+            margin: 0;
+            color: #007AFF;
+            font-size: 20px;
+        }}
+        .info-item {{
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-left: 3px solid #007AFF;
+            border-radius: 4px;
+        }}
+        .info-label {{
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 5px;
+        }}
+        .info-value {{
+            color: #333;
+        }}
+        .error-type {{
+            background-color: #fff3cd;
+            border-left-color: #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }}
+        .error-type .info-label {{
+            color: #856404;
+        }}
+        .details {{
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }}
+        .button-container {{
+            text-align: center;
+            margin: 30px 0;
+        }}
+        .status-button {{
+            display: inline-block;
+            padding: 14px 32px;
+            background-color: #007AFF;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: background-color 0.3s;
+            box-shadow: 0 2px 4px rgba(0,122,255,0.3);
+        }}
+        .status-button:hover {{
+            background-color: #0051D5;
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>🍎 Apple Developer System Status Monitor</h2>
+        </div>
+        
+        <div class="info-item">
+            <div class="info-label">监控时间</div>
+            <div class="info-value">{check_time}</div>
+        </div>
+        
+        <div class="info-item">
+            <div class="info-label">监控服务</div>
+            <div class="info-value">{self.target_service}</div>
+        </div>
+        
+        <div class="info-item">
+            <div class="info-label">监控URL</div>
+            <div class="info-value">{self.url}</div>
+        </div>
+"""
+            
+            if error_type:
+                email_body_html += f"""
+        <div class="error-type">
+            <div class="info-label">异常类型</div>
+            <div class="info-value">{error_type}</div>
+        </div>
+"""
+            
+            email_body_html += f"""
+        <div class="info-item">
+            <div class="info-label">详细信息</div>
+            <div class="details">{body}</div>
+        </div>
+        
+        <div class="button-container">
+            <a href="{status_url}" class="status-button">查看具体状态</a>
+        </div>
+        
+        <div class="footer">
+            此邮件由 Apple Developer Status Monitor 自动发送
+        </div>
+    </div>
+</body>
+</html>
+"""
+            
+            # 添加HTML和纯文本两种格式（邮件客户端会自动选择）
+            msg.attach(MIMEText(email_body_plain, 'plain', 'utf-8'))
+            msg.attach(MIMEText(email_body_html, 'html', 'utf-8'))
             
             # 根据配置选择SSL或TLS连接
             use_ssl = self.smtp_config.get('use_ssl', False)
